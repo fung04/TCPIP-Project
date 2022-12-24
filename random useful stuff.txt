@@ -1,0 +1,98 @@
+void book_ticket(int client_fd)
+{
+    int seats[20] = {0};
+
+    // Print the initial seat status
+    printf("Initial seat status:\n");
+    for (int i = 0; i < 20; i++)
+    {
+        if (i % 2 == 0)
+        {
+            printf("\n"); // Start a new line every two seats
+        }
+        printf("%c%d ", 'A' + (i / 2), i % 2 + 1); // Print the column and row of the seat
+        if (seats[i] == 0)
+        {
+            printf("[ ]  "); // Print an empty square for an available seat
+        }
+        else
+        {
+            printf("[X]  "); // Print an X for an occupied seat
+        }
+    }
+    printf("\n");
+
+    // Prompt the user to select a seat
+    int seat_num;
+    printf("Please select a seat: ");
+    scanf("%d", &seat_num);
+    seat_num = seat_num - 1; // Adjust the seat number to match the index of the seats array
+
+    // Check if the seat is available
+    if (seats[seat_num] == 0)
+    {
+        // Send the chosen seat to the server
+        write(client_fd, &seat_num, sizeof(seat_num));
+
+        // Receive a response from the server
+        int response;
+        read(client_fd, &response, sizeof(response));
+
+        if (response == 1)
+        {
+            // Update the seat status
+            seats[seat_num] = 1;
+            printf("Ticket booked successfully.
+
+
+
+
+
+// Server side
+
+// Create a socket and bind it to a port
+int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+struct sockaddr_in servaddr;
+memset(&servaddr, 0, sizeof(servaddr));
+servaddr.sin_family = AF_INET;
+servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+servaddr.sin_port = htons(PORT);
+bind(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
+
+// Listen for incoming connections
+listen(sockfd, 5);
+
+// Accept a connection from the client
+int clientfd = accept(sockfd, (struct sockaddr*)NULL, NULL);
+
+// Create an array to be sent to the client
+int array[] = {1, 2, 3, 4, 5};
+
+// Send the size of the array to the client
+int array_size = sizeof(array) / sizeof(array[0]);
+send(clientfd, &array_size, sizeof(array_size), 0);
+
+// Send the array to the client
+send(clientfd, array, sizeof(array), 0);
+
+// Close the socket
+close(sockfd);
+
+
+// Client side
+
+// Create a socket and connect to the server
+int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+struct sockaddr_in servaddr;
+memset(&servaddr, 0, sizeof(servaddr));
+servaddr.sin_family = AF_INET;
+servaddr.sin_addr.s_addr = inet_addr(SERVER_IP);
+servaddr.sin_port = htons(PORT);
+connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
+
+// Receive the size of the array from the server
+int array_size;
+recv(sockfd, &array_size, sizeof(array_size), 0);
+
+// Create a buffer to store the received array
+int array[array
