@@ -10,6 +10,8 @@
 #define MAX_SEAT 20
 #define buf_size 1024
 
+int client_id = NULL;
+
 struct bus_info
 {
     int id;
@@ -90,6 +92,7 @@ int booking_system(int client_fd)
 
         // Read response from server
         recv(client_fd, &valid, sizeof(valid), 0);
+        recv(client_fd, &client_id, sizeof(int), 0);
 
         if (valid == 1)
         {
@@ -101,7 +104,6 @@ int booking_system(int client_fd)
         {
             printf("Invalid username or password.\n");
         }
-        break;
     case 2:
         char name[buf_size];
         printf("\nPlease enter your username: ");
@@ -149,7 +151,6 @@ void booking_menu(int client_fd)
     {
     case 1:
         book_ticket(client_fd);
-        break;
     case 2:
         // cancel_ticket(client_fd);
         break;
@@ -181,7 +182,7 @@ struct bus_info *get_bus_info(int client_fd, int num_bus) {
     return db_bus_list;
 }
 
-void bus_seat_plotter(int seats[])
+void bus_seat_plotter(int *seats)
 {
     printf("Current seat status:\n");
 
@@ -240,7 +241,7 @@ void book_ticket(int client_fd)
     printf("Please select a bus: \n");
     scanf("%d", &bus_id);
 
-    bus_seat_plotter(db_bus_list[bus_id].seat);
+    bus_seat_plotter(db_bus_list[bus_id-1].seat);
 
     printf("Please select a seat [A1]: \n");
     scanf("%s", &seat_label);
@@ -249,10 +250,11 @@ void book_ticket(int client_fd)
     // send the bus id and seat id to the server
     send(client_fd, &bus_id, sizeof(bus_id), 0);
     send(client_fd, &seat_id, sizeof(seat_id), 0);
+    send(client_fd, &client_id, sizeof(client_id), 0);
 
     // get book status from server
     int book_status;
-    recv(client_fd, &book_status, sizeof(book_status), 0);
+    recv(client_fd, &book_status, sizeof(int), 0);
 
     if(book_status == 1) {
         printf("You had successfully booked a ticket.\n");
@@ -260,4 +262,6 @@ void book_ticket(int client_fd)
         printf("Sorry, the seat is already booked.\n");
     }
 
+    // call the booking menu again
+    booking_menu(client_fd);
 }
