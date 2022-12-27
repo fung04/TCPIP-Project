@@ -94,6 +94,37 @@ int main()
     return 0;
 }
 
+int get_file_fd(char *file_name)
+{
+    int user_fd = open("user_info", O_RDWR);
+    if (user_fd == -1)
+    {
+        perror("open error");
+        exit(1);
+    }
+
+    int bus_fd = open("bus_info", O_RDWR);
+    if (bus_fd == -1)
+    {
+        perror("open error");
+        exit(1);
+    }
+
+    int booking_fd = open("booking_info", O_RDWR);
+    if (booking_fd == -1)
+    {
+        perror("open error");
+        exit(1);
+    }
+
+    if (strcmp(file_name, "user_info") == 0)
+        return user_fd;
+    else if (strcmp(file_name, "bus_info") == 0)
+        return bus_fd;
+    else if (strcmp(file_name, "booking_info") == 0)
+        return booking_fd;
+}
+
 int client_handler(int client_fd)
 {
     int user_choice;
@@ -159,7 +190,7 @@ void client_login(int client_fd)
         printf("Log: %s user logged in\n", username);
         send(client_fd, &valid, sizeof(valid), 0);
         send(client_fd, &client_id, sizeof(client_id), 0);
-        booking_menu_handler(client_fd);
+        booking_menu_handler(client_fd, client_id);
     }
     else
     {
@@ -227,7 +258,7 @@ void client_register(int client_fd)
     close(fd);
 }
 
-void booking_menu_handler(int client_fd)
+void booking_menu_handler(int client_fd, int client_id)
 {
     int user_choice;
     recv(client_fd, &user_choice, sizeof(user_choice), 0);
@@ -237,17 +268,17 @@ void booking_menu_handler(int client_fd)
     {
     case 1:
         printf("Log: book ticket");
-        book_ticket(client_fd);
+        book_ticket(client_fd, client_id);
     case 2:
-        // printf("Log: view ticket");
-        // client_register(client_fd);
+        printf("Log: view ticket");
+        view_ticket(client_fd, client_id);
     case 3:
         // exit
         return 0;
     }
 }
 
-void book_ticket(int client_fd)
+void book_ticket(int client_fd, int client_id)
 {
     // Use the stat function to get the size of the file
     struct stat st;
@@ -282,12 +313,28 @@ void book_ticket(int client_fd)
     printf("Log: Sent bus info\n");
 
     // get bus id, client_id and seat number from client
-    int bus_id, seat_id, client_id, book_status;
+    int bus_id, seat_id, book_status=1;
     recv(client_fd, &bus_id, sizeof(bus_id), 0);
     recv(client_fd, &seat_id, sizeof(seat_id), 0);
-    recv(client_fd, &client_id, sizeof(client_id), 0);
 
+    // update the bus_info file
+    book_status = update_bus_info(bus_id,seat_id,book_status,client_id);
+    update_booking_info(client_id, bus_id, seat_id, book_status);
+
+    // send the booking status bus_idto the client
+    send(client_fd, &book_status, sizeof(int), 0);
+    printf("Log: Bus info updated\n");
+
+    close(bus_fd);
+    booking_menu_handler(client_fd, client_id);
+}
+
+int update_bus_info(int bus_id, int seat_id, int book_status, int client_id)
+{
+    int bus_fd = get_file_fd("bus_info");
     lseek(bus_fd, 0, SEEK_SET);
+
+    struct bus_info db_bus;
     while (read(bus_fd, &db_bus, sizeof(db_bus)) > 0)
     {
         if (db_bus.id == bus_id)
@@ -295,9 +342,7 @@ void book_ticket(int client_fd)
             if (db_bus.seat[seat_id] == 0)
             {
                 db_bus.seat[seat_id] = 1;
-                // update the bus_info file
                 printf("Log: Seat booked\n");
-                update_booking_info(client_id, bus_id, db_bus.seat);
                 book_status = 1;
             }
             else
@@ -310,48 +355,70 @@ void book_ticket(int client_fd)
         lseek(bus_fd, -1 * sizeof(struct bus_info), SEEK_CUR);
         write(bus_fd, &db_bus, sizeof(db_bus));
     }
-    // send the booking status bus_idto the client
-    send(client_fd, &book_status, sizeof(int), 0);
-    printf("Log: Bus info updated\n");
 
-    close(bus_fd);
-    booking_menu_handler(client_fd);
+    return book_status;
 }
 
-void update_booking_info(int client_id, int bus_id, int *seat_info)
+void update_booking_info(int client_id, int bus_id, int seat_id, int book_status)
 {
     // create booking_info filebus_id
+    int booking_fd = get_file_fd("booking_info");
     struct booking_info db_booking;
-    int booking_fd = open("booking_info", O_RDWR);
-    if (booking_fd < 0)
-    {
-        perror("Error opening booking_info");
-        return;
-    }
 
     int file_pointer = lseek(booking_fd, 0, SEEK_END);
+    int found = 0;
 
-    if (file_pointer == 0)
+    // search for a record with the same client ID
+    lseek(booking_fd, 0, SEEK_SET);
+    while (read(booking_fd, &db_booking, sizeof(db_booking)) > 0)
     {
-        db_booking.id = 1;
-        lseek(booking_fd, 0, SEEK_END);
-        printf("Log: Booking info created\n");
+        if (db_booking.client_id == client_id && db_booking.bus_id == bus_id)
+        {
+            found = 1;
+            break;
+        }
+    }
+
+    // if a record with the same client ID and Bus ID was found, update it
+    if (found)
+    {
+        printf("Log: Booking info updated\n");
+        lseek(booking_fd, -1 * sizeof(struct booking_info), SEEK_CUR);
+    }
+    // otherwise, create a new record
+    else
+    {
+        if (file_pointer == 0)
+        {
+            db_booking.id = 1;
+            lseek(booking_fd, 0, SEEK_END);
+            printf("Log: Booking info created\n");
+        }
+        else
+        {
+            lseek(booking_fd, -1 * sizeof(struct booking_info), SEEK_END);
+            read(booking_fd, &db_booking, sizeof(db_booking));
+            db_booking.id++;
+            printf("Log: Booking info created\n");
+        }
+    }
+
+    // write the booking info to the file
+    if (found)
+    {
+        db_booking.seat[seat_id] = book_status;
+        strcpy(db_booking.date, "dd");
     }
     else
     {
-        lseek(booking_fd, -1 * sizeof(struct booking_info), SEEK_END);
-        read(booking_fd, &db_booking, sizeof(db_booking));
-        db_booking.id++;
-        printf("Log: Booking info updated\n");
-    };
-    // write the booking info to the file
-    db_booking.client_id = client_id;
-    db_booking.bus_id = bus_id;
-    strcpy(db_booking.date, "dd");
-
-    for (int i = 0; i < MAX_SEAT; i++)
-    {
-        db_booking.seat[i] = seat_info[i];
+        db_booking.client_id = client_id;
+        db_booking.bus_id = bus_id;
+        strcpy(db_booking.date, "dd");
+        for (int i = 0; i < MAX_SEAT; i++)
+        {
+            db_booking.seat[i] = 0;
+        }
+        db_booking.seat[seat_id] = book_status;
     }
 
     write(booking_fd, &db_booking, sizeof(db_booking));
@@ -369,56 +436,102 @@ void update_booking_info(int client_id, int bus_id, int *seat_info)
 
     close(booking_fd);
 }
-// void view_ticket(int client_fd)
-// {
-//     // Use the stat function to get the size of the file
-//     struct stat st;
-//     if (stat("bus_info", &st) != 0)
-//     {
-//         perror("Error getting file size");
-//         return;
-//     }
 
-//     // Calculate the number of buses by dividing the file size by the size of the bus_info structure
-//     int num_buses = st.sYou had successfully booked a ticket.\nt_size / sizeof(struct bus_info);
+void view_ticket(int client_fd, int client_id)
+{
+    // Declare a pointer to an array of booking_info structures
+    struct booking_info *booking_list = NULL;
+    int size = 0; // Keep track of the size of the array
 
-//     // get bus info
-//     struct bus_info db_bus;
-//     int fd = open("bus_info", O_RDONLY);
-//     if (fd < 0)
-//     {
-//         perror("Error opening bus_info");
-//         return;
-//     }
-//     lseek(fd, 0, SEEK_SET);
+    // Open the booking_info file for reading
+    int fd = open("booking_info", O_RDONLY);
+    if (fd < 0)
+    {
+        perror("Error opening booking_info file");
+        return;
+    }
 
-//     // get client's name
-//     char client_name[100];
-//     recv(client_fd, client_name, sizeof(client_name), 0);
+    // Search for a booking with a matching client_id
+    struct booking_info booking;
+    while (read(fd, &booking, sizeof(booking)) > 0)
+    {
+        if (booking.client_id == client_id)
+        {
+            // Allocate memory for an additional element in the array
+            size++;
+            booking_list = realloc(booking_list, size * sizeof(struct booking_info));
+            if (booking_list == NULL)
+            {
+                perror("Error allocating memory for booking list");
+                return;
+            }
 
-//     // search for booked tickets
-//     int num_tickets = 0;
-//     struct bus_info tickets[100];
-//     while (read(fd, &db_bus, sizeof(db_bus)) > 0)
-//     {
-//         for (int i = 0; i < NUM_SEATS; i++)
-//         {
-//             if (db_bus.seat[i] == client_name)
-//             {
-//                 tickets[num_tickets] = db_bus;
-//                 num_tickets++;
-//             }
-//         }
-//     }
+            // store the booking data in the next available element of the array
+            booking_list[size - 1].id = booking.id;
+            booking_list[size - 1].client_id = booking.client_id;
+            booking_list[size - 1].bus_id = booking.bus_id;
+            strcpy(booking_list[size - 1].date, booking.date);
+            for (int i = 0; i < MAX_SEAT; i++)
+            {
+                booking_list[size - 1].seat[i] = booking.seat[i];
+            }
+        }
+    }
 
-//     // send number of booked tickets
-//     send(client_fd, &num_tickets, sizeof(num_tickets), 0);
+    // Send the number of bookings to the client
+    send(client_fd, &size, sizeof(size), 0);
 
-//     // send booked tickets to client
-//     for (int i = 0; i < num_tickets; i++)
-//     {
-//         send(client_fd, &tickets[i], sizeof(tickets[i]), 0);
-//     }
+    // Now you can access the booking_list array and iterate through the bookings
+    for (int i = 0; i < size; i++)
+    {
+        // do something with the booking_list[i] element
+        printf("ID: %d\n", booking_list[i].id);
+        send(client_fd, &booking_list[i], sizeof(struct booking_info), 0);
+    }
 
-//     close(fd);
-// }
+
+    // get user option
+    int user_option;
+    recv(client_fd, &user_option, sizeof(user_option), 0);
+
+    // open bus_info file
+    int bus_fd = get_file_fd("bus_info");
+    // get the bus info
+    struct bus_info db_bus;
+    
+
+    if (user_option == 1)
+    {
+        // get seat_id and order_id from the client
+        int seat_id, order_id;
+        recv(client_fd, &seat_id, sizeof(seat_id), 0);
+        recv(client_fd, &order_id, sizeof(order_id), 0);
+
+        for (int i = 0; i < size; i++)
+        {
+            if (booking_list[i].id == order_id)
+            {
+                update_booking_info(client_id, booking_list[i].bus_id, seat_id, 0);
+                update_bus_info(booking_list[i].bus_id, seat_id, 0, client_id);
+                printf("Log: Booking cancelled\n");
+            }
+        }
+
+    }
+    else if (user_option == 2)
+    {
+        // go back to booking menu
+        booking_menu_handler(client_fd, client_id);
+    }
+    else
+    {
+        // exit
+        close(client_fd);
+    }
+
+    // free the memory allocated for the array
+    free(booking_list);
+
+
+    close(fd);
+}

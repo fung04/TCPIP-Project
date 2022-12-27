@@ -21,6 +21,15 @@ struct bus_info
     int seat[MAX_SEAT];
 };
 
+struct booking_info
+{
+    int id;
+    int client_id;
+    int bus_id;
+    char date[10];
+    int seat[MAX_SEAT];
+};
+
 int booking_system(int client_fd);
 
 int main(int argc, char **argv)
@@ -152,8 +161,7 @@ void booking_menu(int client_fd)
     case 1:
         book_ticket(client_fd);
     case 2:
-        // cancel_ticket(client_fd);
-        break;
+        view_tickets(client_fd);
     case 3:
         // view_tickets(client_fd);
         break;
@@ -221,7 +229,6 @@ int seat_converter(char *seat_id) {
     return index;
 }
 
-
 void book_ticket(int client_fd)
 {
     
@@ -264,4 +271,93 @@ void book_ticket(int client_fd)
 
     // call the booking menu again
     booking_menu(client_fd);
+}
+
+void view_tickets(int client_fd)
+{
+    int num_orders;
+
+    // Receive the ticket number from the server
+    recv(client_fd, &num_orders, sizeof(num_orders), 0);
+    printf("Number of order: %d\n", num_orders);
+
+    //struct booking_info *db_booking_list = get_booking_info(client_fd, num_orders);
+    struct booking_info db_booking;
+    for (int i = 0; i < num_orders; i++)
+    {
+        recv(client_fd, &db_booking, sizeof(struct booking_info), 0);
+
+        printf("Order ID: %d\n", db_booking.id);
+        printf("Bus ID: %d\n", db_booking.bus_id);
+        printf("Date: %s\n", db_booking.date);
+        bus_seat_plotter(db_booking.seat);
+        printf("\n\n");        
+    }
+
+    // Ask the user if they want to cancel a ticket
+    printf("Do you want to modify ticket? (y/n): ");
+    char cancel_ticket;
+    scanf(" %c", &cancel_ticket);
+
+    if (cancel_ticket == 'y')
+    {
+        //Get the order id and seat label from the user
+        int order_id, seat_id;
+        char seat_label[5];
+        printf("Enter the order ID: ");
+        scanf("%d", &order_id);
+
+        printf("Select an option:\n1.Update\n2.Cancel");
+        char user_option;
+        scanf("%d", &user_option);
+
+        switch (user_option)
+        {
+        case 1:
+            /* Update */
+            send(client_fd, &user_option, sizeof(user_option), 0);
+            printf("Enter the seat label: ");
+            scanf("%s", seat_label);
+            seat_id = seat_converter(seat_label);
+
+            // Send the order id and seat label to the server
+            send(client_fd, &order_id, sizeof(order_id), 0);
+            send(client_fd, &seat_id, sizeof(seat_id), 0);
+            
+            break;
+        case 2:
+            /* Delete */
+            printf("Enter the seat label: ");
+            scanf("%s", seat_label);
+            seat_id = seat_converter(seat_label);
+
+            // Send the order id and seat label to the server
+            send(client_fd, &order_id, sizeof(order_id), 0);
+            send(client_fd, &seat_id, sizeof(seat_id), 0);
+            break;
+        default:
+            break;
+        }
+
+        // Receive the response from the server indicating whether the cancellation was successful
+        int cancel_success;
+        recv(client_fd, &cancel_success, sizeof(cancel_success), 0);
+
+        if (cancel_success)
+        {
+            printf("Ticket cancellation successful!\n");
+        }
+        else
+        {
+            printf("Ticket cancellation failed.\n");
+        }
+    }
+    else
+    {
+        printf("Returning to main menu...\n");
+        booking_menu(client_fd); 
+    }
+
+
+    
 }
