@@ -159,8 +159,10 @@ void booking_menu(int client_fd)
     switch (user_choice)
     {
     case 1:
+        printf("1 = %d", user_choice);
         book_ticket(client_fd);
     case 2:
+        printf("2 = %d", user_choice);
         view_tickets(client_fd);
     case 3:
         // view_tickets(client_fd);
@@ -263,6 +265,10 @@ void book_ticket(int client_fd)
     int book_status;
     recv(client_fd, &book_status, sizeof(int), 0);
 
+    // printf("Book status: %s\n", book_status);
+
+    printf("Book status: %d\n", book_status);
+
     if(book_status == 1) {
         printf("You had successfully booked a ticket.\n");
     } else {
@@ -307,14 +313,14 @@ void view_tickets(int client_fd)
         printf("Enter the order ID: ");
         scanf("%d", &order_id);
 
-        printf("Select an option:\n1.Update\n2.Cancel");
+        printf("Select an option:\n1.Cancel\n2.Update\n\n");
         char user_option;
         scanf("%d", &user_option);
 
         switch (user_option)
         {
         case 1:
-            /* Update */
+            /* Cancel */
             send(client_fd, &user_option, sizeof(user_option), 0);
             printf("Enter the seat label: ");
             scanf("%s", seat_label);
@@ -339,18 +345,18 @@ void view_tickets(int client_fd)
             break;
         }
 
-        // Receive the response from the server indicating whether the cancellation was successful
-        int cancel_success;
-        recv(client_fd, &cancel_success, sizeof(cancel_success), 0);
+        // // Receive the response from the server indicating whether the cancellation was successful
+        // int cancel_success;
+        // recv(client_fd, &cancel_success, sizeof(cancel_success), 0);
 
-        if (cancel_success)
-        {
-            printf("Ticket cancellation successful!\n");
-        }
-        else
-        {
-            printf("Ticket cancellation failed.\n");
-        }
+        // if (cancel_success)
+        // {
+        //     printf("Ticket cancellation successful!\n");
+        // }
+        // else
+        // {
+        //     printf("Ticket cancellation failed.\n");
+        // }
     }
     else
     {
