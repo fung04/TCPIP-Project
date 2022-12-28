@@ -159,10 +159,8 @@ void booking_menu(int client_fd)
     switch (user_choice)
     {
     case 1:
-        printf("1 = %d", user_choice);
         book_ticket(client_fd);
     case 2:
-        printf("2 = %d", user_choice);
         view_tickets(client_fd);
     case 3:
         // view_tickets(client_fd);
@@ -285,7 +283,17 @@ void view_tickets(int client_fd)
 
     // Receive the ticket number from the server
     recv(client_fd, &num_orders, sizeof(num_orders), 0);
-    printf("Number of order: %d\n", num_orders);
+
+    if (num_orders == 0)
+    {
+        printf("You have no ticket.\n");
+        booking_menu(client_fd);
+        return 0;
+    }
+    else
+    {
+        printf("You have %d order(s).\n", num_orders);
+    }
 
     //struct booking_info *db_booking_list = get_booking_info(client_fd, num_orders);
     struct booking_info db_booking;
@@ -303,18 +311,18 @@ void view_tickets(int client_fd)
     // Ask the user if they want to cancel a ticket
     printf("Do you want to modify ticket? (y/n): ");
     char cancel_ticket;
+    int user_option;
     scanf(" %c", &cancel_ticket);
 
     if (cancel_ticket == 'y')
     {
         //Get the order id and seat label from the user
         int order_id, seat_id;
-        char seat_label[5];
+        char seat_label[2];
         printf("Enter the order ID: ");
         scanf("%d", &order_id);
 
         printf("Select an option:\n1.Cancel\n2.Update\n\n");
-        char user_option;
         scanf("%d", &user_option);
 
         switch (user_option)
@@ -323,8 +331,10 @@ void view_tickets(int client_fd)
             /* Cancel */
             send(client_fd, &user_option, sizeof(user_option), 0);
             printf("Enter the seat label: ");
-            scanf("%s", seat_label);
+            scanf("%s", &seat_label);
             seat_id = seat_converter(seat_label);
+
+            printf("Seat id: %d, order id: %d\n", seat_id, order_id);
 
             // Send the order id and seat label to the server
             send(client_fd, &order_id, sizeof(order_id), 0);
@@ -360,6 +370,9 @@ void view_tickets(int client_fd)
     }
     else
     {
+        user_option = 3;
+        send(client_fd, &user_option, sizeof(user_option), 0);
+        
         printf("Returning to main menu...\n");
         booking_menu(client_fd); 
     }
