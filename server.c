@@ -6,10 +6,14 @@
 #include <sys/socket.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <pthread.h>
+#include "sem.h"
 
 #define PORT 5666
 #define buf_size 1024
 #define MAX_SEAT 20
+#define MAX_CLIENTS 5
 
 struct account
 {
@@ -42,66 +46,16 @@ struct bus_info_result
     int seat[MAX_SEAT];
 };
 
-int client_handler(int client_fd);
+sem_t mutex;
+pthread_t threads[MAX_CLIENTS];
+int sem_id;
+
+int *client_handler(void *arg);
 void client_login(int client_fd);
 void client_register(int client_fd);
 int booking_menu_handler(int client_fd, int client_id);
 void book_ticket(int client_fd, int client_id);
 struct bus_info_result update_bus_info(int bus_id, int seat_id, int book_status, int client_id);
-
-int main()
-{
-    int server_fd, client_fd;
-    struct sockaddr_in server_addr, client_addr;
-    int client_addr_size;
-    char buf[1024];
-    int len;
-
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1)
-    {
-        perror("socket error");
-        exit(1);
-    }
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    // set the socket option to reuse the address
-    int option = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
-
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
-    {
-        perror("bind error");
-        exit(1);
-    }
-
-    if (listen(server_fd, 5) == -1)
-    {
-        perror("listen error");
-        exit(1);
-    }
-
-    printf("Server is running...\n");
-    for (;;)
-    {
-        client_fd = accept(server_fd, (struct sockaddr *)NULL, NULL);
-        if (client_fd == -1)
-        {
-            perror("accept error");
-            exit(1);
-        }
-        // fork a child process to handle the client
-        if (fork() == 0)
-            client_handler(client_fd);
-    }
-
-    close(server_fd);
-
-    return 0;
-}
 
 int get_file_fd(char *file_name)
 {
@@ -143,8 +97,137 @@ int all_seats_are_empty(int seat[]) {
     return 1;
 }
 
-int client_handler(int client_fd)
+int main()
 {
+    int server_fd, client_fd;
+    int clients[MAX_CLIENTS] = {0};
+    struct sockaddr_in server_addr, client_addr;
+    int client_addr_size;
+    fd_set readfds; // set of file descriptors to be monitored for reading
+    int max_fd;     // maximum file descriptor value
+
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd == -1)
+    {
+        perror("socket error");
+        exit(1);
+    }
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(PORT);
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    // set the socket option to reuse the address
+    int option = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
+
+    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+    {
+        perror("bind error");
+        exit(1);
+    }
+
+    if (listen(server_fd, 5) == -1)
+    {
+        perror("listen error");
+        exit(1);
+    }
+
+    // Initialize the semaphore
+    key_t semkey = 0x200;
+    sem_id = initsem(semkey);
+    sem_init(&mutex, 0, 1);
+
+    printf("Server is running...\n");
+    while (1)
+    {
+        // initialize the read file descriptor set
+        FD_ZERO(&readfds);
+        FD_SET(server_fd, &readfds);
+        max_fd = server_fd;
+
+        // add client sockets to the read file descriptor set
+        for (int i = 0; i < MAX_CLIENTS; i++)
+        {
+            client_fd = clients[i];
+            if (client_fd > 0)
+            {
+                FD_SET(client_fd, &readfds);
+            }
+            max_fd = (client_fd > max_fd) ? client_fd : max_fd;
+        }
+
+        // wait for activity on any of the file descriptors
+        int activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
+        if ((activity < 0) && (errno != EINTR))
+        {
+            perror("select error");
+            exit(1);
+        }
+
+        // if there is activity on the server socket, it means a new client is trying to connect
+        if (FD_ISSET(server_fd, &readfds))
+        {
+            client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_size);
+            if (client_fd == -1)
+            {
+                perror("accept error");
+                exit(1);
+            }
+            printf("New client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
+            for (int i = 0; i < MAX_CLIENTS; i++)
+            {
+                if (clients[i] == 0)
+                {
+                    clients[i] = client_fd;
+                    printf("Adding client to list of sockets as %d\n", i);
+
+                    int *arg = malloc(sizeof(*arg));
+                    *arg = client_fd;
+                    if (pthread_create(&threads[i], NULL, client_handler, arg) != 0)
+                    {
+                        perror("Error creating thread");
+                        exit(1);
+                    }
+                    break;
+                }
+            }
+
+
+        }
+
+        // check for activity on the client sockets
+        // for (int i = 0; i < MAX_CLIENTS; i++)
+        // {
+        //     client_fd = clients[i];
+        //     if (FD_ISSET(client_fd, &readfds))
+        //     {
+        //         if (user_choice == 0)
+        //         {
+        //             printf("Client disconnected: %d\n", i);
+        //             close(client_fd);
+        //             clients[i] = 0;
+        //             pthread_cancel(threads[i]);
+        //         }
+
+        //     }
+        // }
+    }
+
+    semctl(sem_id, 0, IPC_RMID, 0);
+    sem_destroy(&mutex);
+
+    close(server_fd);
+
+    return 0;
+}
+
+int *client_handler(void *arg)
+{
+    int client_fd = *((int *)arg);
+    free(arg);
+
     int user_choice;
     printf("Log: Client connected\n");
 
@@ -167,11 +250,12 @@ int client_handler(int client_fd)
             client_register(client_fd);
             break;
         case 3:
-            return 0;
+           exit(0);
         }
     }
-
+    printf("Log: Client disconnected\n");
     close(client_fd);
+    pthread_exit(NULL);
 }
 
 void client_login(int client_fd)
@@ -193,6 +277,7 @@ void client_login(int client_fd)
 
     int valid = 0;
 
+    p(sem_id);
     while (read(fd, &db_acc, sizeof(db_acc)) > 0)
     {
         if (strcmp(db_acc.name, username) == 0 && strcmp(db_acc.pass, password) == 0)
@@ -202,6 +287,7 @@ void client_login(int client_fd)
             break;
         }
     }
+    v(sem_id);
 
     if (valid)
     {
@@ -216,6 +302,7 @@ void client_login(int client_fd)
         valid = 0;
         send(client_fd, &valid, sizeof(valid), 0);
     }
+    
 
     close(fd);
 }
@@ -460,7 +547,16 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
     // write the booking info to the file
     if (found)
     {
+        db_booking.seat[seat_id] = book_status;    {
+        db_booking.client_id = client_id;
+        db_booking.bus_id = bus_id;
+        strcpy(db_booking.date, "dd");
+        for (int i = 0; i < MAX_SEAT; i++)
+        {
+            db_booking.seat[i] = 0;
+        }
         db_booking.seat[seat_id] = book_status;
+    }
         strcpy(db_booking.date, "dd");
     }
     else
@@ -511,25 +607,6 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
     close(booking_fd);
 }
 
-struct bus_info *get_booking_info(int num_order)
-{
-    // allocate memory for the bus list
-    struct booking_info *db_booking_list = malloc(num_order * sizeof(struct booking_info));
-
-    // open the booking_info file
-    int booking_fd = get_file_fd("booking_info");
-
-    // receive the bus information from the server
-    int num_orders = 0;
-    struct booking_info db_booking;
-    while (num_orders < num_order && read(booking_fd, &db_booking, sizeof(db_booking)) > 0)
-    {
-        db_booking_list[num_orders] = db_booking;
-        num_orders++;
-    }
-
-    return db_booking_list;
-}
 void view_ticket(int client_fd, int client_id)
 {   
     
@@ -572,10 +649,12 @@ void view_ticket(int client_fd, int client_id)
             }
         }
     }
+    bzero(&booking, sizeof(booking));
     memset(&booking, 0, sizeof(booking));
 
     // Send the number of bookings to the client
     send(client_fd, &size, sizeof(size), 0);
+    bzero(&size, sizeof(size));
     printf("Log: %d booking(s) found\n", size);
 
     if (size == 0)
@@ -808,6 +887,9 @@ void view_ticket(int client_fd, int client_id)
                 bus_result = update_bus_info(db_booking_list[i].bus_id, seat_id, 0, client_id);
             }
         }
+        //view_ticket(client_fd, client_id);
+
+
         printf("BUS RESULT: %d", bus_result.book_status);
 
         if(bus_result.book_status == 0)
@@ -867,3 +949,23 @@ void view_ticket(int client_fd, int client_id)
 
 
 } */
+
+// struct bus_info *get_booking_info(int num_order)
+// {
+//     // allocate memory for the bus list
+//     struct booking_info *db_booking_list = malloc(num_order * sizeof(struct booking_info));
+
+//     // open the booking_info file
+//     int booking_fd = get_file_fd("booking_info");
+
+//     // receive the bus information from the server
+//     int num_orders = 0;
+//     struct booking_info db_booking;
+//     while (num_orders < num_order && read(booking_fd, &db_booking, sizeof(db_booking)) > 0)
+//     {
+//         db_booking_list[num_orders] = db_booking;
+//         num_orders++;
+//     }
+
+//     return db_booking_list;
+// }
