@@ -6,11 +6,13 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #define PORT 5666
 #define MAX_SEAT 20
 #define buf_size 1024
 
 int client_id = NULL;
+int client_fd;
 
 struct bus_info
 {
@@ -41,7 +43,6 @@ void sigint_handler(int sig, siginfo_t *siginfo, void *context)
 
 int main(int argc, char **argv)
 {
-    int client_fd;
     struct sockaddr_in server_addr;
 
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -60,6 +61,13 @@ int main(int argc, char **argv)
         perror("connect error");
         exit(1);
     }
+
+    // Set up the handler for SIGINT
+    struct sigaction act;
+    memset(&act, 0, sizeof(act));
+    act.sa_sigaction = sigint_handler;
+    act.sa_flags = SA_SIGINFO;
+    sigaction(SIGINT, &act, NULL);
 
     // keep running a booking_system() function
     printf("Connection established.\n");

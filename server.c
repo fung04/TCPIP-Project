@@ -79,13 +79,6 @@ int get_file_fd(char *file_name)
         perror("open error");
         exit(1);
     }
-
-    if (strcmp(file_name, "user_info") == 0)
-        return user_fd;
-    else if (strcmp(file_name, "bus_info") == 0)
-        return bus_fd;
-    else if (strcmp(file_name, "booking_info") == 0)
-        return booking_fd;
 }
 
 int all_seats_are_empty(int seat[]) {
@@ -97,130 +90,191 @@ int all_seats_are_empty(int seat[]) {
     return 1;
 }
 
-int main()
+void get_pipe_bus_info(int pipefd[2])
 {
-    int server_fd, client_fd;
-    int clients[MAX_CLIENTS] = {0};
-    struct sockaddr_in server_addr, client_addr;
-    int client_addr_size;
-    fd_set readfds; // set of file descriptors to be monitored for reading
-    int max_fd;     // maximum file descriptor value
+    struct bus_info bus;
+    int latest_bus_info = open("bus_info", O_RDWR);
+    char buf[buf_size];
+    int seats_available;
 
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1)
+    while (read(latest_bus_info, &bus, sizeof(struct bus_info)) > 0)
     {
-        perror("socket error");
-        exit(1);
-    }
+        seats_available = 0;
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    // set the socket option to reuse the address
-    int option = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
-
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
-    {
-        perror("bind error");
-        exit(1);
-    }
-
-    if (listen(server_fd, 5) == -1)
-    {
-        perror("listen error");
-        exit(1);
-    }
-
-    // Initialize the semaphore
-    key_t semkey = 0x200;
-    sem_id = initsem(semkey);
-    sem_init(&mutex, 0, 1);
-
-    printf("Server is running...\n");
-    while (1)
-    {
-        // initialize the read file descriptor set
-        FD_ZERO(&readfds);
-        FD_SET(server_fd, &readfds);
-        max_fd = server_fd;
-
-        // add client sockets to the read file descriptor set
-        for (int i = 0; i < MAX_CLIENTS; i++)
+        for (int i = 0; i < MAX_SEAT; i++)
         {
-            client_fd = clients[i];
-            if (client_fd > 0)
+            if (bus.seat[i] == 0)
             {
-                FD_SET(client_fd, &readfds);
+                seats_available++;
             }
-            max_fd = (client_fd > max_fd) ? client_fd : max_fd;
         }
+        //printf("Bus %d has %d seats available, %d seats are booked\n", bus.id, seats_available, MAX_SEAT - seats_available);
 
-        // wait for activity on any of the file descriptors
-        int activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
-        if ((activity < 0) && (errno != EINTR))
+        sprintf(buf, "Bus %d has %d seats available, %d seats are booked", bus.id, seats_available, MAX_SEAT - seats_available);
+        usleep(1000); // sleep for 1ms
+        write(pipefd[1], buf, strlen(buf) + 1);
+    }
+    close(latest_bus_info);
+}
+
+int main(int argc, char *argv[])
+{
+    int pipefd[2];
+    char buf[buf_size];
+    pid_t pid;
+
+    // check if '--reset' argument is passed
+    if (argc > 1 && strcmp(argv[1], "--reset") == 0)
+    {
+        execl("./dummy_bus_generator && ./server", NULL);
+    }
+
+    if (pipe(pipefd) == -1)
+    {
+        perror("Unable to create pipe");
+        return 1;
+    }
+
+    // create a child process to read the bus info file and display the bus info
+    pid = fork();
+    if (pid == 0)
+    {
+        // child process
+        close(pipefd[0]);
+        get_pipe_bus_info(pipefd);
+        close(pipefd[1]);
+    }
+    else
+    {   
+        // parent process
+        close(pipefd[1]);
+        while (read(pipefd[0], buf, buf_size) > 0)
         {
-            perror("select error");
+            printf("%s\n", buf);
+        }
+        close(pipefd[0]);
+
+        int server_fd, client_fd;
+        int clients[MAX_CLIENTS] = {0};
+        struct sockaddr_in server_addr, client_addr;
+        int client_addr_size;
+        fd_set readfds; // set of file descriptors to be monitored for reading
+        int max_fd;     // maximum file descriptor value
+
+        server_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (server_fd == -1)
+        {
+            perror("socket error");
             exit(1);
         }
 
-        // if there is activity on the server socket, it means a new client is trying to connect
-        if (FD_ISSET(server_fd, &readfds))
-        {
-            client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_size);
-            if (client_fd == -1)
-            {
-                perror("accept error");
-                exit(1);
-            }
-            printf("New client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(PORT);
+        server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
+        // set the socket option to reuse the address
+        int option = 1;
+        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
+
+        if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+        {
+            perror("bind error");
+            exit(1);
+        }
+
+        if (listen(server_fd, 5) == -1)
+        {
+            perror("listen error");
+            exit(1);
+        }
+
+        // Initialize the semaphore
+        key_t semkey = 0x200;
+        sem_id = initsem(semkey);
+        sem_init(&mutex, 0, 1);
+
+        printf("Server is running...\n");
+        while (1)
+        {
+            // initialize the read file descriptor set
+            FD_ZERO(&readfds);
+            FD_SET(server_fd, &readfds);
+            max_fd = server_fd;
+
+            // add client sockets to the read file descriptor set
             for (int i = 0; i < MAX_CLIENTS; i++)
             {
-                if (clients[i] == 0)
+                client_fd = clients[i];
+                if (client_fd > 0)
                 {
-                    clients[i] = client_fd;
-                    printf("Adding client to list of sockets as %d\n", i);
+                    FD_SET(client_fd, &readfds);
+                }
+                max_fd = (client_fd > max_fd) ? client_fd : max_fd;
+            }
 
-                    int *arg = malloc(sizeof(*arg));
-                    *arg = client_fd;
-                    if (pthread_create(&threads[i], NULL, client_handler, arg) != 0)
+            // wait for activity on any of the file descriptors
+            int activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
+            if ((activity < 0) && (errno != EINTR))
+            {
+                perror("select error");
+                exit(1);
+            }
+
+            // if there is activity on the server socket, it means a new client is trying to connect
+            if (FD_ISSET(server_fd, &readfds))
+            {
+                client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_size);
+                if (client_fd == -1)
+                {
+                    perror("accept error");
+                    exit(1);
+                }
+                printf("New client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
+                for (int i = 0; i < MAX_CLIENTS; i++)
+                {
+                    if (clients[i] == 0)
                     {
-                        perror("Error creating thread");
-                        exit(1);
+                        clients[i] = client_fd;
+                        printf("Adding client to list of sockets as %d\n", i);
+
+                        int *arg = malloc(sizeof(*arg));
+                        *arg = client_fd;
+                        if (pthread_create(&threads[i], NULL, client_handler, arg) != 0)
+                        {
+                            perror("Error creating thread");
+                            exit(1);
+                        }
+                        break;
                     }
-                    break;
                 }
             }
 
+            // check for activity on the client sockets
+            // for (int i = 0; i < MAX_CLIENTS; i++)
+            // {
+            //     client_fd = clients[i];
+            //     if (FD_ISSET(client_fd, &readfds))
+            //     {
+            //         if (user_choice == 0)
+            //         {
+            //             printf("Client disconnected: %d\n", i);
+            //             close(client_fd);
+            //             clients[i] = 0;
+            //             pthread_cancel(threads[i]);
+            //         }
 
+            //     }
+            // }
         }
 
-        // check for activity on the client sockets
-        // for (int i = 0; i < MAX_CLIENTS; i++)
-        // {
-        //     client_fd = clients[i];
-        //     if (FD_ISSET(client_fd, &readfds))
-        //     {
-        //         if (user_choice == 0)
-        //         {
-        //             printf("Client disconnected: %d\n", i);
-        //             close(client_fd);
-        //             clients[i] = 0;
-        //             pthread_cancel(threads[i]);
-        //         }
+        semctl(sem_id, 0, IPC_RMID, 0);
+        sem_destroy(&mutex);
 
-        //     }
-        // }
+        close(server_fd);
+
+        return 0;
     }
-
-    semctl(sem_id, 0, IPC_RMID, 0);
-    sem_destroy(&mutex);
-
-    close(server_fd);
-
-    return 0;
 }
 
 int *client_handler(void *arg)
@@ -262,14 +316,14 @@ void client_login(int client_fd)
 {
     char username[buf_size], password[buf_size];
     struct account db_acc;
-    int fd, client_id;
+    int user_fd, client_id;
 
     recv(client_fd, &username, sizeof(username), 0);
     recv(client_fd, &password, sizeof(password), 0);
 
-    fd = open("user_info", O_RDONLY);
+    user_fd = open("user_info", O_RDONLY);
 
-    if (fd < 0)
+    if (user_fd < 0)
     {
         perror("Error opening user.txt");
         return;
@@ -278,7 +332,7 @@ void client_login(int client_fd)
     int valid = 0;
 
     p(sem_id);
-    while (read(fd, &db_acc, sizeof(db_acc)) > 0)
+    while (read(user_fd, &db_acc, sizeof(db_acc)) > 0)
     {
         if (strcmp(db_acc.name, username) == 0 && strcmp(db_acc.pass, password) == 0)
         {
@@ -286,6 +340,7 @@ void client_login(int client_fd)
             client_id = db_acc.id;
             break;
         }
+        printf("Log: %s %s %d\n", db_acc.name, db_acc.pass, db_acc.id);
     }
     v(sem_id);
 
@@ -304,7 +359,7 @@ void client_login(int client_fd)
     }
     
 
-    close(fd);
+    //close(user_fd);
 }
 
 void client_register(int client_fd)
