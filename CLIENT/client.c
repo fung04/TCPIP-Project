@@ -129,6 +129,7 @@ int booking_system(int client_fd)
         else
         {
             printf("Invalid username or password.\n");
+            booking_menu(client_fd);
         }
     case 2:
         char name[buf_size];
@@ -149,6 +150,7 @@ int booking_system(int client_fd)
         break;
     case 3:
         printf("Thank you for using our system.\n");
+        close(client_fd);
         exit(0);
         break;
     default:
@@ -169,7 +171,7 @@ void booking_menu(int client_fd)
     // get the user's choice
     printf("Your choice: ");
     scanf("%d", &user_choice);
-    user_choice = (user_choice > 0 && user_choice < 5) ? user_choice : 4;
+    user_choice = (user_choice > 0 && user_choice < 4) ? user_choice : 3;
 
     send(client_fd, &user_choice, sizeof(user_choice), 0);
 
@@ -180,7 +182,8 @@ void booking_menu(int client_fd)
     case 2:
         view_tickets(client_fd);
     case 3:
-        // view_tickets(client_fd);
+        printf("You have successfully logged out.\n");
+        exit(0);
         break;
     case 4:
         printf("You have successfully logged out.\n");
@@ -330,6 +333,7 @@ void view_tickets(int client_fd)
         bus_seat_plotter(db_booking.seat);
         printf("\n\n");
     }
+    memset(&db_booking, 0, sizeof(struct booking_info));
 
     // struct booking_info db_booking;
     // int num_order = 0;

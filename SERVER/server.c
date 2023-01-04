@@ -48,7 +48,9 @@ struct bus_info_result
 
 sem_t mutex;
 pthread_t threads[MAX_CLIENTS];
+int clients[MAX_CLIENTS] = {0};
 int sem_id;
+int user_choice;
 
 int *client_handler(void *arg);
 void client_login(int client_fd);
@@ -155,7 +157,6 @@ int main(int argc, char *argv[])
         close(pipefd[0]);
 
         int server_fd, client_fd;
-        int clients[MAX_CLIENTS] = {0};
         struct sockaddr_in server_addr, client_addr;
         int client_addr_size;
         fd_set readfds; // set of file descriptors to be monitored for reading
@@ -247,6 +248,10 @@ int main(int argc, char *argv[])
                         }
                         break;
                     }
+                    else
+                    {
+                        printf("No more clients can be added\n");
+                    }
                 }
             }
 
@@ -256,14 +261,12 @@ int main(int argc, char *argv[])
             //     client_fd = clients[i];
             //     if (FD_ISSET(client_fd, &readfds))
             //     {
-            //         if (user_choice == 0)
+            //         if(client_fd == 0)
             //         {
-            //             printf("Client disconnected: %d\n", i);
             //             close(client_fd);
             //             clients[i] = 0;
-            //             pthread_cancel(threads[i]);
+            //             printf("Remove Client\n");
             //         }
-
             //     }
             // }
         }
@@ -282,7 +285,6 @@ int *client_handler(void *arg)
     int client_fd = *((int *)arg);
     free(arg);
 
-    int user_choice;
     printf("Log: Client connected\n");
 
     while (1)
@@ -304,22 +306,41 @@ int *client_handler(void *arg)
             client_register(client_fd);
             break;
         case 3:
-           exit(0);
+            close(client_fd);
+            printf("Log: User Logout\n");
+            for (int i = 0; i < MAX_CLIENTS; i++)
+            {
+                if (clients[i] == client_fd)
+                {
+                    clients[i] = 0;
+                    break;
+                }
+            }
+            pthread_exit(NULL);
         }
     }
-    printf("Log: Client disconnected\n");
-    close(client_fd);
-    pthread_exit(NULL);
 }
 
 void client_login(int client_fd)
 {
     char username[buf_size], password[buf_size];
     struct account db_acc;
-    int user_fd, client_id;
+    int user_fd, client_id, nbytes;
 
-    recv(client_fd, &username, sizeof(username), 0);
-    recv(client_fd, &password, sizeof(password), 0);
+    nbytes = recv(client_fd, &username, sizeof(username), 0);
+    nbytes = recv(client_fd, &password, sizeof(password), 0);
+
+    if(nbytes < 0)
+    {
+        perror("Error reading username");
+        return;
+    }
+    else if(nbytes == 0)
+    {
+        printf("Client disconnected\n");
+        user_choice = 3;
+        return;
+    }
 
     user_fd = open("user_info", O_RDONLY);
 
@@ -340,7 +361,6 @@ void client_login(int client_fd)
             client_id = db_acc.id;
             break;
         }
-        printf("Log: %s %s %d\n", db_acc.name, db_acc.pass, db_acc.id);
     }
     v(sem_id);
 
@@ -355,7 +375,10 @@ void client_login(int client_fd)
     {
         printf("Log: Login failed\n");
         valid = 0;
+        client_id = 0;
         send(client_fd, &valid, sizeof(valid), 0);
+        send(client_fd, &client_id, sizeof(client_id), 0);
+        booking_menu_handler(client_fd, client_id);
     }
     
 
@@ -420,9 +443,20 @@ void client_register(int client_fd)
 
 int booking_menu_handler(int client_fd, int client_id)
 {
-    int user_choice = 0;
-    recv(client_fd, &user_choice, sizeof(user_choice), 0);
-    user_choice = (user_choice > 0 && user_choice < 5) ? user_choice : 4;
+    int user_choice = 0, nbytes;
+    nbytes = recv(client_fd, &user_choice, sizeof(user_choice), 0);
+    user_choice = (user_choice > 0 && user_choice < 4) ? user_choice : 3;
+
+    if(nbytes < 0)
+    {
+        perror("Error reading username");
+        return;
+    }
+    else if(nbytes == 0)
+    {
+        user_choice = 3;
+    }
+
 
     switch (user_choice)
     {
@@ -433,7 +467,17 @@ int booking_menu_handler(int client_fd, int client_id)
         printf("Log: view ticket\n");
         view_ticket(client_fd, client_id);
     case 3:
-        // exit
+        close(client_fd);
+        printf("Log: User Logout\n");
+        for (int i = 0; i < MAX_CLIENTS; i++)
+        {
+            if (clients[i] == client_fd)
+            {
+                clients[i] = 0;
+                break;
+            }
+        }
+        pthread_exit(NULL);
         return 0;
     }
 }
@@ -475,20 +519,33 @@ void book_ticket(int client_fd, int client_id)
 
     // get bus id, client_id and seat number from client
     int bus_id, seat_id, book_status = 1;
-    if (recv(client_fd, &bus_id, sizeof(bus_id), 0) > 0)
+    int nybtes = recv(client_fd, &bus_id, sizeof(bus_id), 0);
+    if (nybtes > 0)
     {
         recv(client_fd, &seat_id, sizeof(seat_id), 0);
         recv(client_fd, &client_id, sizeof(client_id), 0);
 
         // update the bus_info file
+        p(sem_id);
         struct bus_info_result result = update_bus_info(bus_id, seat_id, book_status, client_id);
         book_status = result.book_status;
         update_booking_info(client_id, bus_id, seat_id, book_status);
+        v(sem_id);
 
 
         // send the booking status bus_idto the client
         send(client_fd, &book_status, sizeof(int), 0);
         printf("Log: Bus info updated\n");
+    }
+    else if (nybtes == 0)
+    {
+        user_choice = 3;
+        return;
+    }
+    else
+    {
+        printf("Log: Error reading bus_id\n");
+        return;
     }
 
     booking_menu_handler(client_fd, client_id);
@@ -496,16 +553,19 @@ void book_ticket(int client_fd, int client_id)
 
 struct bus_info_result update_bus_info(int bus_id, int seat_id, int book_status, int client_id)
 {
-    int bus_fd = get_file_fd("bus_info");
+    int bus_fd = open("bus_info", O_RDWR);
     lseek(bus_fd, 0, SEEK_SET);
 
     struct bus_info_result result;
 
+    printf("bus_id: %d, seat_id: %d, book_status: %d, client_id: %d", bus_id, seat_id, book_status, client_id);
     struct bus_info db_bus;
     while (read(bus_fd, &db_bus, sizeof(db_bus)) > 0)
     {
         if (db_bus.id == bus_id)
         {
+            printf("Log: Bus found\n");
+            printf("Log: BUS staus %d", book_status);
             // if (db_bus.seat[seat_id] == 0)
             // {
             //     db_bus.seat[seat_id] = 1;
@@ -565,6 +625,7 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
     int found = 0;
 
     // search for a record with the same client ID
+    
     lseek(booking_fd, 0, SEEK_SET);
     while (read(booking_fd, &db_booking, sizeof(db_booking)) > 0)
     {
@@ -599,19 +660,9 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
         }
     }
 
-    // write the booking info to the file
-    if (found)
+     if (found)
     {
-        db_booking.seat[seat_id] = book_status;    {
-        db_booking.client_id = client_id;
-        db_booking.bus_id = bus_id;
-        strcpy(db_booking.date, "dd");
-        for (int i = 0; i < MAX_SEAT; i++)
-        {
-            db_booking.seat[i] = 0;
-        }
         db_booking.seat[seat_id] = book_status;
-    }
         strcpy(db_booking.date, "dd");
     }
     else
@@ -667,7 +718,6 @@ void view_ticket(int client_fd, int client_id)
     
     // Declare a pointer to an array of booking_info structures
     struct booking_info *booking_list = NULL;
-    free(booking_list);
     int size = 0; // Keep track of the size of the array
 
     // Open the booking_info file for reading
@@ -677,9 +727,12 @@ void view_ticket(int client_fd, int client_id)
         perror("Error opening booking_info file");
         return;
     }
+    lseek(fd, 0, SEEK_SET);
 
     // Search for a booking with a matching client_id
+    p(sem_id);
     struct booking_info booking;
+    free(booking_list);
     while (read(fd, &booking, sizeof(booking)) > 0)
     {
         if (booking.client_id == client_id)
@@ -704,14 +757,11 @@ void view_ticket(int client_fd, int client_id)
             }
         }
     }
-    bzero(&booking, sizeof(booking));
-    memset(&booking, 0, sizeof(booking));
 
     // Send the number of bookings to the client
     send(client_fd, &size, sizeof(size), 0);
-    bzero(&size, sizeof(size));
     printf("Log: %d booking(s) found\n", size);
-
+    v(sem_id);
     if (size == 0)
     {
         printf("Log: No booking found\n");
