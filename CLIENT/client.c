@@ -36,7 +36,9 @@ int booking_system(int client_fd);
 
 void sigint_handler(int sig, siginfo_t *siginfo, void *context)
 {
-    // Perform necessary actions here, such as closing the connection to the server
+    //closing the connection to the server
+    system("clear");
+    printf("You have successfully logged out.\n");
     close(client_fd);
     exit(0);
 }
@@ -62,24 +64,20 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    // Set up the handler for SIGINT
+    // set up the handler for SIGINT
     struct sigaction act;
     memset(&act, 0, sizeof(act));
     act.sa_sigaction = sigint_handler;
     act.sa_flags = SA_SIGINFO;
     sigaction(SIGINT, &act, NULL);
 
-    // keep running a booking_system() function
     printf("Connection established.\n");
     while (1)
     {
-        // char *msg = "Hello, server!";
-        // send(client_fd, msg, strlen(msg), 0);
         booking_system(client_fd);
     }
 
     close(client_fd);
-
     return 0;
 }
 
@@ -95,7 +93,6 @@ int booking_system(int client_fd)
     printf("2. Signup\n");
     printf("3. Exit\n");
 
-    // get the user's choice
     printf("Your choice: ");
     scanf("%d", &user_choice);
     user_choice = (user_choice > 0 && user_choice < 4) ? user_choice : 3;
@@ -104,6 +101,7 @@ int booking_system(int client_fd)
     switch (user_choice)
     {
     case 1:
+        // client login
         int valid = 0;
 
         printf("\nPlease enter your username: ");
@@ -131,7 +129,9 @@ int booking_system(int client_fd)
             printf("Invalid username or password.\n");
             booking_menu(client_fd);
         }
+        break;
     case 2:
+        // client signup
         char name[buf_size];
         printf("\nPlease enter your username: ");
         scanf("%s", buf);
@@ -185,9 +185,6 @@ void booking_menu(int client_fd)
         printf("You have successfully logged out.\n");
         exit(0);
         break;
-    case 4:
-        printf("You have successfully logged out.\n");
-        break;
     default:
         printf("Invalid choice.\n");
         break;
@@ -213,8 +210,6 @@ struct bus_info *get_bus_info(int client_fd, int num_bus)
 
 void bus_seat_plotter(int *seats)
 {
-    printf("Current seat status:\n");
-
     for (int i = 0; i < MAX_SEAT; i++)
     {
         if (i % 2 == 0)
@@ -255,9 +250,11 @@ void book_ticket(int client_fd)
 
     int num_bus = 0, bus_id = 0, seat_id = 0;
     char seat_label[2];
+    
     // receive bus num from server
     recv(client_fd, &num_bus, sizeof(num_bus), 0);
 
+    system("clear");
     printf("Number of bus: %d\n", num_bus);
     struct bus_info *db_bus_list = get_bus_info(client_fd, num_bus);
 
@@ -266,12 +263,13 @@ void book_ticket(int client_fd)
         printf("ID: %d, Name: %s, Date: %s  ,Time: %s\n", db_bus_list[i].id, db_bus_list[i].name, db_bus_list[i].date, db_bus_list[i].time);
     }
 
-    printf("Please select a bus: \n");
+    printf("\n\nPlease select a bus: ");
     scanf("%d", &bus_id);
 
+    printf("The booking status of bus %d is as follows:\n", bus_id);
     bus_seat_plotter(db_bus_list[bus_id - 1].seat);
 
-    printf("Please select a seat [A1]: \n");
+    printf("Please select a seat [A1]: ");
     scanf("%s", &seat_label);
     seat_id = seat_converter(seat_label);
 
@@ -280,14 +278,10 @@ void book_ticket(int client_fd)
     send(client_fd, &seat_id, sizeof(seat_id), 0);
     send(client_fd, &client_id, sizeof(client_id), 0);
 
-    // get book status from server
+    // receive book status from server
     int book_status;
     recv(client_fd, &book_status, sizeof(int), 0);
-
-    // printf("Book status: %s\n", book_status);
-
-    printf("Book status: %d\n", book_status);
-
+    system("clear");
     if (book_status == 1)
     {
         printf("You had successfully booked a ticket.\n");
@@ -308,21 +302,19 @@ void view_tickets(int client_fd)
 
     // Receive the ticket number from the server
     recv(client_fd, &num_orders, sizeof(int), 0);
-    printf("Number of orders: %d\n", num_orders);
-
     if (num_orders == 0)
     {
-        printf("You have no ticket.\n");
+        system("clear");
+        printf("You have no oreder yet.\n");
         booking_menu(client_fd);
         return 0;
     }
     else
     {
-        printf("You have %d order(s).\n", num_orders);
+        printf("You have %d order(s).\n\n", num_orders);
     }
 
-    // struct booking_info *db_booking_list = get_booking_info(client_fd, num_orders);
-
+    // Receive the ticket information from the server
     for (int i = 0; i < num_orders; i++)
     {
         recv(client_fd, &db_booking, sizeof(struct booking_info), 0);
@@ -330,33 +322,13 @@ void view_tickets(int client_fd)
         printf("Order ID: %d\n", db_booking.id);
         printf("Bus ID: %d\n", db_booking.bus_id);
         printf("Date: %s\n", db_booking.date);
+        printf("\nYou have the following seat(s) booked:\n");
         bus_seat_plotter(db_booking.seat);
         printf("\n\n");
     }
     memset(&db_booking, 0, sizeof(struct booking_info));
 
-    // struct booking_info db_booking;
-    // int num_order = 0;
-    // while (recv(client_fd, &db_booking, sizeof(struct booking_info), 0) > 0 && num_order < num_orders)
-    // {
-    //     if(client_id == db_booking.client_id)
-    //     {
-
-    //     printf("Order ID: %d\n", db_booking.id);
-    //     printf("Bus ID: %d\n", db_booking.bus_id);
-    //     printf("Date: %s\n", db_booking.date);
-    //     bus_seat_plotter(db_booking.seat);
-    //     printf("\n\n");
-
-    //     recv(client_fd, &db_booking, sizeof(struct booking_info), 0);
-
-    //     num_order++;
-    //     }
-    // }
-
-    // memset(&db_booking, 0, sizeof(db_booking));
-
-    // Ask the user if they want to cancel a ticket
+    // ask the user if they want to cancel a ticket
     printf("Do you want to modify ticket? (y/n): ");
     char cancel_ticket;
     char seat_label[2];
@@ -366,11 +338,11 @@ void view_tickets(int client_fd)
     if (cancel_ticket == 'y')
     {
         // Get the order id and seat label from the user
-
         printf("Enter the order ID: ");
         scanf("%d", &order_id);
 
-        printf("Select an option:\n1.Cancel\n2.Update\n\n");
+        printf("\n1.Cancel Ticket\n2.Add Ticket\n\n");
+        printf("Please select an option: ");
         scanf("%d", &user_option);
         send(client_fd, &user_option, sizeof(user_option), 0);
     }
@@ -378,7 +350,6 @@ void view_tickets(int client_fd)
     {
         user_option = 3;
         send(client_fd, &user_option, sizeof(user_option), 0);
-
         printf("Returning to main menu...\n");
         booking_menu(client_fd);
     }
@@ -386,11 +357,9 @@ void view_tickets(int client_fd)
     if (user_option == 1)
     {
         /* Cancel */
-        printf("Enter the seat label: ");
+        printf("Enter the seat label [A1]: ");
         scanf("%s", &seat_label);
         seat_id = seat_converter(seat_label);
-
-        printf("Seat id: %d, order id: %d\n", seat_id, order_id);
 
         // Send the order id and seat label to the server
         send(client_fd, &order_id, sizeof(order_id), 0);
@@ -411,7 +380,7 @@ void view_tickets(int client_fd)
     else if (user_option == 2)
     {
         /* Update */
-        printf("Enter the seat label: ");
+        printf("Enter the seat label [A1]: ");
         scanf("%s", seat_label);
         seat_id = seat_converter(seat_label);
 
