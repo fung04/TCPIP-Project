@@ -13,7 +13,6 @@
 #define PORT 5666
 #define buf_size 1024
 #define MAX_SEAT 20
-#define MAX_CLIENTS 5
 
 struct account
 {
@@ -47,10 +46,11 @@ struct bus_info_result
 };
 
 sem_t mutex;
-pthread_t threads[MAX_CLIENTS];
-int clients[MAX_CLIENTS] = {0};
 int sem_id;
 int user_choice;
+int num_clients = 0;
+int *client_fds = NULL;
+pthread_t *threads = NULL;
 
 int *client_handler(void *arg);
 void client_login(int client_fd);
@@ -119,6 +119,20 @@ void get_pipe_bus_info(int pipefd[2])
     close(latest_bus_info);
 }
 
+void dissconnect_client(int client_fd)
+{
+    for (int i = 0; i < num_clients; i++)
+    {
+        if (client_fds[i] == client_fd)
+        {
+            memmove(&client_fds[i], &client_fds[i + 1], (num_clients - i - 1) * sizeof(*client_fds));
+            memmove(&threads[i], &threads[i + 1], (num_clients - i - 1) * sizeof(*threads));
+            num_clients--;
+            break;
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int pipefd[2];
@@ -158,9 +172,6 @@ int main(int argc, char *argv[])
 
         int server_fd, client_fd;
         struct sockaddr_in server_addr, client_addr;
-        int client_addr_size;
-        fd_set readfds; // set of file descriptors to be monitored for reading
-        int max_fd;     // maximum file descriptor value
 
         server_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (server_fd == -1)
@@ -194,6 +205,12 @@ int main(int argc, char *argv[])
         sem_id = initsem(semkey);
         sem_init(&mutex, 0, 1);
 
+        int client_addr_size;
+        fd_set readfds; // set of file descriptors to be monitored for reading
+        int max_fd;     // maximum file descriptor value
+
+        int *client_fd_ptr;
+        pthread_t *thread_ptr;
         printf("Server is running...\n");
         while (1)
         {
@@ -203,9 +220,9 @@ int main(int argc, char *argv[])
             max_fd = server_fd;
 
             // add client sockets to the read file descriptor set
-            for (int i = 0; i < MAX_CLIENTS; i++)
+            for (int i = 0; i < num_clients; i++)
             {
-                client_fd = clients[i];
+                client_fd = client_fds[i];
                 if (client_fd > 0)
                 {
                     FD_SET(client_fd, &readfds);
@@ -217,7 +234,7 @@ int main(int argc, char *argv[])
             int activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
             if ((activity < 0) && (errno != EINTR))
             {
-                perror("select error");
+                perror("selecdissconnect_clientt error");
                 exit(1);
             }
 
@@ -232,43 +249,20 @@ int main(int argc, char *argv[])
                 }
                 printf("New client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-                for (int i = 0; i < MAX_CLIENTS; i++)
-                {
-                    if (clients[i] == 0)
-                    {
-                        clients[i] = client_fd;
-                        printf("Adding client to list of sockets as %d\n", i);
+                // add the new client to the list of connected clients
+                num_clients++;
+                client_fds = realloc(client_fds, num_clients * sizeof(*client_fds));
+                client_fds[num_clients - 1] = client_fd;
+                threads = realloc(threads, num_clients * sizeof(*threads));
 
-                        int *arg = malloc(sizeof(*arg));
-                        *arg = client_fd;
-                        if (pthread_create(&threads[i], NULL, client_handler, arg) != 0)
-                        {
-                            perror("Error creating thread");
-                            exit(1);
-                        }
-                        break;
-                    }
-                    else
-                    {
-                        printf("No more clients can be added\n");
-                    }
+                client_fd_ptr = malloc(sizeof(*client_fd_ptr));
+                *client_fd_ptr = client_fd;
+                if (pthread_create(&threads[num_clients - 1], NULL, client_handler, client_fd_ptr) != 0)
+                {
+                    perror("Error creating thread");
+                    exit(1);
                 }
             }
-
-            // check for activity on the client sockets
-            // for (int i = 0; i < MAX_CLIENTS; i++)
-            // {
-            //     client_fd = clients[i];
-            //     if (FD_ISSET(client_fd, &readfds))
-            //     {
-            //         if(client_fd == 0)
-            //         {
-            //             close(client_fd);
-            //             clients[i] = 0;
-            //             printf("Remove Client\n");
-            //         }
-            //     }
-            // }
         }
 
         semctl(sem_id, 0, IPC_RMID, 0);
@@ -300,23 +294,22 @@ int *client_handler(void *arg)
         case 1:
             printf("Log: User Login\n");
             client_login(client_fd);
+            user_choice = 3;
             break;
         case 2:
             printf("Log: User Register\n");
             client_register(client_fd);
             break;
         case 3:
-            close(client_fd);
+            dissconnect_client(client_fd);
             printf("Log: User Logout\n");
-            for (int i = 0; i < MAX_CLIENTS; i++)
-            {
-                if (clients[i] == client_fd)
-                {
-                    clients[i] = 0;
-                    break;
-                }
-            }
-            pthread_exit(NULL);
+            close(client_fd);
+            return NULL;
+        case 0:
+            dissconnect_client(client_fd);
+            printf("Log: User Exit\n");
+            close(client_fd);
+            return NULL;
         }
     }
 }
@@ -337,9 +330,9 @@ void client_login(int client_fd)
     }
     else if(nbytes == 0)
     {
-        printf("Client disconnected\n");
+        printf("Log: Client disconnected\n");
         user_choice = 3;
-        return;
+        return NULL;
     }
 
     user_fd = open("user_info", O_RDONLY);
@@ -390,11 +383,24 @@ void client_register(int client_fd)
 
     char username[buf_size], password[buf_size];
     struct account db_acc;
-    int fd;
+    int fd, nbytes;
 
-    recv(client_fd, &username, sizeof(username), 0);
-    recv(client_fd, &password, sizeof(password), 0);
+    nbytes = recv(client_fd, &username, sizeof(username), 0);
+    nbytes = recv(client_fd, &password, sizeof(password), 0);
 
+    if(nbytes < 0)
+    {
+        perror("Error reading username");
+        return;
+    }
+    else if(nbytes == 0)
+    {
+        printf("Log: Client disconnected\n");
+        user_choice = 3;
+        return NULL;
+    }
+
+    p(sem_id);
     fd = open("user_info", O_RDWR);
 
     if (fd < 0)
@@ -429,6 +435,7 @@ void client_register(int client_fd)
 
         send(client_fd, &db_acc.name, sizeof(db_acc.name), 0);
     }
+    v(sem_id);
     printf("Log: %s user registered\n", username);
 
     // retrerive all records
@@ -454,7 +461,9 @@ int booking_menu_handler(int client_fd, int client_id)
     }
     else if(nbytes == 0)
     {
+        printf("Log: Client disconnected\n");
         user_choice = 3;
+        return NULL;
     }
 
 
@@ -463,21 +472,13 @@ int booking_menu_handler(int client_fd, int client_id)
     case 1:
         printf("Log: book ticket\n");
         book_ticket(client_fd, client_id);
+        break;
     case 2:
         printf("Log: view ticket\n");
         view_ticket(client_fd, client_id);
+        break;
     case 3:
         close(client_fd);
-        printf("Log: User Logout\n");
-        for (int i = 0; i < MAX_CLIENTS; i++)
-        {
-            if (clients[i] == client_fd)
-            {
-                clients[i] = 0;
-                break;
-            }
-        }
-        pthread_exit(NULL);
         return 0;
     }
 }
@@ -539,8 +540,9 @@ void book_ticket(int client_fd, int client_id)
     }
     else if (nybtes == 0)
     {
+        printf("Log: Client disconnected\n");
         user_choice = 3;
-        return;
+        return NULL;
     }
     else
     {
