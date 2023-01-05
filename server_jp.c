@@ -8,14 +8,11 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <pthread.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
 #include "sem.h"
 
 #define PORT 5666
 #define buf_size 1024
 #define MAX_SEAT 20
-#define QUEUE_KEY 1234
 
 struct account
 {
@@ -46,12 +43,6 @@ struct bus_info_result
 {
     int book_status;
     int seat[MAX_SEAT];
-};
-
-struct bus_message_q
-{
-    long type;
-    int num_buses;
 };
 
 int sem_id;
@@ -152,32 +143,7 @@ int main(int argc, char *argv[])
     // check if '--reset' argument is passed
     if (argc > 1 && strcmp(argv[1], "--reset") == 0)
     {
-        int num_buses;
-
-        // create the message queue
-        int queue_id = msgget(QUEUE_KEY, 0666 | IPC_CREAT);
-        if (queue_id < 0)
-        {
-            perror("Error creating message queue");
-            return 1;
-        }
-
-        printf("Enter the number of buses [MAX 10]: ");
-        scanf("%d", &num_buses);
-
-        // fill in the message queue struct
-        struct bus_message_q msg;
-        msg.type = 1;
-        msg.num_buses = num_buses;
-
-        // send the message queue to the dummy bus generator
-        if (msgsnd(queue_id, &msg, sizeof(struct bus_message_q), 0) < 0)
-        {
-            perror("Error sending message");
-            return 1;
-        }
-
-        execl("./dummy_bus_generator", NULL);
+        execl("./dummy_bus_generator && ./server", NULL);
     }
 
     if (pipe(pipefd) == -1)
@@ -860,7 +826,13 @@ void view_ticket(int client_fd, int client_id)
                 printf("Log: Booking record found\n");
                 book_status = update_bus_info(booking_list[i].bus_id, seat_id, 1, client_id);
                 if(book_status == 1)
+                {
                     update_booking_info(client_id, booking_list[i].bus_id, seat_id, book_status);
+                }
+                else
+                {
+                    printf("123");
+                }
             }
         }
 

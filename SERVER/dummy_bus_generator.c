@@ -4,10 +4,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
 
-// Define the number of buses
-#define NUM_BUSES 5
 #define MAX_SEAT 20
+#define QUEUE_KEY 1234
 
 struct bus_info
 {
@@ -18,13 +19,37 @@ struct bus_info
     int seat[MAX_SEAT];
 };
 
+struct bus_message_q
+{
+    long type;
+    int num_buses;
+};
+
 int main()
 {
-    // Create an array of NUM_BUSES bus_info structures
-    struct bus_info buses[NUM_BUSES];
+    // create a message queue
+    int queue_id = msgget(QUEUE_KEY, 0666);
+    if (queue_id < 0)
+    {
+        perror("Error getting message queue");
+        return 1;
+    }
+
+    // receive the message
+    struct bus_message_q msg;
+    if (msgrcv(queue_id, &msg, sizeof(struct bus_message_q), 1, 0) < 0)
+    {
+        perror("Error receiving message");
+        return 1;
+    }
+    int num_buses = msg.num_buses;
+
+    // Create an array of bus_info structures
+    struct bus_info buses[num_buses];
+
 
     // Use a loop to fill in the values for each element of the array
-    for (int i = 0; i < NUM_BUSES; i++)
+    for (int i = 0; i < num_buses; i++)
     {
         buses[i].id = i + 1;
         sprintf(buses[i].name, "Bus %d", i + 1);
@@ -50,17 +75,19 @@ int main()
     }
 
     // Write the array of buses to the file
-    if (write(fd, buses, sizeof(struct bus_info) * NUM_BUSES) < 0)
+    if (write(fd, buses, sizeof(struct bus_info) * num_buses) < 0)
     {
         perror("Error writing to file");
         return 1;
     }
     else
     {
-        printf("File written successfully\n");
+        printf("Bus info reset successfully\n");
     }
 
-
+    // to destroy the message queue
+    msgctl(queue_id, IPC_RMID, NULL);
+    execl("./server",NULL);
     return 0;
 }
 
