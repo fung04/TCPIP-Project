@@ -56,7 +56,7 @@ void client_login(int client_fd);
 void client_register(int client_fd);
 int booking_menu_handler(int client_fd, int client_id);
 void book_ticket(int client_fd, int client_id);
-struct bus_info_result update_bus_info(int bus_id, int seat_id, int book_status, int client_id);
+int update_bus_info(int bus_id, int seat_id, int book_status, int client_id);
 
 int get_file_fd(char *file_name)
 {
@@ -528,8 +528,7 @@ void book_ticket(int client_fd, int client_id)
 
         // enter critical section, update bus info and booking info
         p(sem_id);
-        struct bus_info_result result = update_bus_info(bus_id, seat_id, book_status, client_id);
-        book_status = result.book_status;
+        book_status = update_bus_info(bus_id, seat_id, book_status, client_id);
         update_booking_info(client_id, bus_id, seat_id, book_status);
         v(sem_id);
         // exit critical section
@@ -554,12 +553,11 @@ void book_ticket(int client_fd, int client_id)
     booking_menu_handler(client_fd, client_id);
 }
 
-struct bus_info_result update_bus_info(int bus_id, int seat_id, int book_status, int client_id)
+int update_bus_info(int bus_id, int seat_id, int book_status, int client_id)
 {
+    int status = 0;
     int bus_fd = open("bus_info", O_RDWR);
     lseek(bus_fd, 0, SEEK_SET);
-
-    struct bus_info_result result;
     
     /* uncomment below code to check the received data */
     // printf("bus_id: %d, seat_id: %d, book_status: %d, client_id: %d", bus_id, seat_id, book_status, client_id);
@@ -574,20 +572,20 @@ struct bus_info_result update_bus_info(int bus_id, int seat_id, int book_status,
             {
                 db_bus.seat[seat_id] = 1;
                 printf("Log: Seat booked\n");
-                result.book_status = 1;
+                status = 1;
                 // update result.seat and print the seat status
             }
             else if (db_bus.seat[seat_id] == 1 && book_status == 0)
             {
                 db_bus.seat[seat_id] = 0;
                 printf("Log: Seat unbooked\n");
-                result.book_status = 0;
+                status = 0;
                 // update result.seat and print the seat status
             }
             else
             {
                 printf("Log: Seat already booked/unbooked\n");
-                result.book_status = 0;
+                status = 0;
             }
         }
         // save the bus info
@@ -595,7 +593,7 @@ struct bus_info_result update_bus_info(int bus_id, int seat_id, int book_status,
         write(bus_fd, &db_bus, sizeof(db_bus));
     }
 
-    return result;
+    return status;
 }
 
 void update_booking_info(int client_id, int bus_id, int seat_id, int book_status)
@@ -782,9 +780,8 @@ void view_ticket(int client_fd, int client_id)
     }
 
     // receive seat_id and order_id from the client
-    int seat_id, order_id;
+    int seat_id, order_id, book_status;
     int update_seat[MAX_SEAT];
-    struct bus_info_result bus_result;
     recv(client_fd, &order_id, sizeof(order_id), 0);
     recv(client_fd, &seat_id, sizeof(seat_id), 0);
 
@@ -798,18 +795,18 @@ void view_ticket(int client_fd, int client_id)
             {
                 printf("Log: Booking record found\n");
                 update_booking_info(client_id, booking_list[i].bus_id, seat_id, 0);
-                bus_result = update_bus_info(booking_list[i].bus_id, seat_id, 0, client_id);
+                book_status = update_bus_info(booking_list[i].bus_id, seat_id, 0, client_id);
             }
         }
-        if(bus_result.book_status == 0)
+        if(book_status == 0)
         {
             printf("\nLog: Booking cancelled\n");
-            send(client_fd, &bus_result, sizeof(bus_result), 0);
+            send(client_fd, &book_status, sizeof(book_status), 0);
         }
         else
         {
             printf("\nLog: Booking not cancelled\n");
-            send(client_fd, &bus_result, sizeof(bus_result), 0);
+            send(client_fd, &book_status, sizeof(book_status), 0);
         }
         free(booking_list);
         break;
@@ -821,19 +818,19 @@ void view_ticket(int client_fd, int client_id)
             {
                 printf("Log: Booking record found\n");
                 update_booking_info(client_id, booking_list[i].bus_id, seat_id, 1);
-                bus_result = update_bus_info(booking_list[i].bus_id, seat_id, 1, client_id);
+                book_status = update_bus_info(booking_list[i].bus_id, seat_id, 1, client_id);
             }
         }
 
-        if(bus_result.book_status == 1)
+        if(book_status == 1)
         {
             printf("Log: Booking updated\n");
-            send(client_fd, &bus_result, sizeof(bus_result), 0);
+            send(client_fd, &book_status, sizeof(book_status), 0);
         }
         else
         {
             printf("Log: Booking update failed\n");
-            send(client_fd, &bus_result, sizeof(bus_result), 0);
+            send(client_fd, &book_status, sizeof(book_status), 0);
         }
         free(booking_list);
         break;
