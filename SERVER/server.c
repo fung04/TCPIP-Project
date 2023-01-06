@@ -887,6 +887,8 @@ void view_ticket(int client_fd, int client_id)
     recv(client_fd, &order_id, sizeof(order_id), 0);
     recv(client_fd, &seat_id, sizeof(seat_id), 0);
 
+    // enter critical section
+    // update/cancel the booking_info file
     p(sem_id);
     switch (user_option)
     {
@@ -942,5 +944,7 @@ void view_ticket(int client_fd, int client_id)
     }
     close(booking_fd);
     v(sem_id);
+    // exit critical section
+
     booking_menu_handler(client_fd, client_id);
 }
