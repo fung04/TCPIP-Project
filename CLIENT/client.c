@@ -11,7 +11,7 @@
 #define MAX_SEAT 20
 #define buf_size 1024
 
-int client_id = NULL;
+int client_id = 0;
 int client_fd;
 
 struct bus_info
@@ -33,6 +33,7 @@ struct booking_info
 };
 
 int booking_system(int client_fd);
+void booking_menu(int client_fd);
 
 void sigint_handler(int sig, siginfo_t *siginfo, void *context)
 {
@@ -46,6 +47,11 @@ void sigint_handler(int sig, siginfo_t *siginfo, void *context)
 int main(int argc, char **argv)
 {
     struct sockaddr_in server_addr;
+    
+    // char *server_address = "127.0.0.1";  // default server address
+    // if (argc >= 2) {
+    //     server_address = argv[1];  // use server address passed as command line argument
+    // }
 
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (client_fd == -1)
@@ -83,7 +89,7 @@ int main(int argc, char **argv)
 
 int booking_system(int client_fd)
 {
-    int len;
+    int valid = 0;
     int user_choice;
     char buf[buf_size];
 
@@ -95,14 +101,13 @@ int booking_system(int client_fd)
 
     printf("Your choice: ");
     scanf("%d", &user_choice);
-    user_choice = (user_choice > 0 && user_choice < 4) ? user_choice : 3;
+    user_choice = (user_choice > 0 && user_choice < 5) ? user_choice : 4;
     send(client_fd, &user_choice, sizeof(user_choice), 0);
 
     switch (user_choice)
     {
     case 1:
         // client login
-        int valid = 0;
 
         printf("\nPlease enter your username: ");
         scanf("%s", buf);
@@ -127,7 +132,7 @@ int booking_system(int client_fd)
         else
         {
             printf("Invalid username or password.\n");
-            booking_menu(client_fd);
+            booking_system(client_fd);
         }
         break;
     case 2:
@@ -145,7 +150,21 @@ int booking_system(int client_fd)
 
         // Read response from server
         recv(client_fd, &name, sizeof(name), 0);
-        printf("Hi %s, you had successfully registered\n", name);
+        recv(client_fd, &valid, sizeof(valid), 0);
+
+        if (valid == 1)
+        {
+            system("clear");
+            printf("Hi %s, you had successfully registered\n", name);
+            booking_menu(client_fd);
+        }
+        else
+        {   
+            system("clear");
+            printf("Sorry username already exists, please try other username\n");
+            booking_system(client_fd);
+        }
+        
 
         break;
     case 3:
@@ -153,8 +172,12 @@ int booking_system(int client_fd)
         close(client_fd);
         exit(0);
         break;
-    default:
+
+    //validation here
+    case 4:
         printf("Invalid choice.\n");
+        close(client_fd);
+        exit(0);
         break;
     }
 }
@@ -171,7 +194,7 @@ void booking_menu(int client_fd)
     // get the user's choice
     printf("Your choice: ");
     scanf("%d", &user_choice);
-    user_choice = (user_choice > 0 && user_choice < 4) ? user_choice : 3;
+    user_choice = (user_choice > 0 && user_choice < 5) ? user_choice : 4;
 
     send(client_fd, &user_choice, sizeof(user_choice), 0);
 
@@ -185,8 +208,10 @@ void booking_menu(int client_fd)
         printf("You have successfully logged out.\n");
         exit(0);
         break;
-    default:
+        //validation here
+    case 4:
         printf("Invalid choice.\n");
+        exit(0);
         break;
     }
 }
@@ -232,9 +257,6 @@ void bus_seat_plotter(int *seats)
 
 int seat_converter(char *seat_id)
 {
-    // Initialize a string with the label for a seat
-    char *label = "B1";
-
     // Parse the column and row number from the label
     char column = seat_id[0];
     int row = seat_id[1] - '0';
@@ -266,12 +288,26 @@ void book_ticket(int client_fd)
     printf("\n\nPlease select a bus: ");
     scanf("%d", &bus_id);
 
+    //validation here
+    if (bus_id > num_bus || bus_id < 1)
+    {
+        printf("Invalid bus id.\n");
+        exit(0);
+    }
+
     printf("The booking status of bus %d is as follows:\n", bus_id);
     bus_seat_plotter(db_bus_list[bus_id - 1].seat);
 
     printf("Please select a seat [A1]: ");
     scanf("%s", &seat_label);
     seat_id = seat_converter(seat_label);
+
+    //validation here
+    if (seat_id > MAX_SEAT || seat_id < 0)
+    {
+        printf("Invalid seat id.\n");
+        exit(0);
+    }
 
     // send the bus id and seat id to the server
     send(client_fd, &bus_id, sizeof(bus_id), 0);

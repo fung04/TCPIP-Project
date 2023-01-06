@@ -401,7 +401,7 @@ void client_login(int client_fd)
         client_id = 0;
         send(client_fd, &valid, sizeof(valid), 0);
         send(client_fd, &client_id, sizeof(client_id), 0);
-        booking_menu_handler(client_fd, client_id);
+        return NULL;
     }
 }
 
@@ -410,7 +410,7 @@ void client_register(int client_fd)
 
     char username[buf_size], password[buf_size];
     struct account db_acc;
-    int fd, nbytes;
+    int fd, nbytes, valid = 0;
 
     nbytes = recv(client_fd, &username, sizeof(username), 0);
     nbytes = recv(client_fd, &password, sizeof(password), 0);
@@ -438,38 +438,77 @@ void client_register(int client_fd)
         return;
     }
 
+    // Check if the file is empty
     int file_pointer = lseek(fd, 0, SEEK_END);
 
     if (file_pointer == 0)
-    { 
-        // if file is empty, set id to 1
+    {
+        // File is empty, create a new user record
+        valid = 1;
         db_acc.id = 1;
         strcpy(db_acc.name, username);
         strcpy(db_acc.pass, password);
 
         write(fd, &db_acc, sizeof(db_acc));
+        printf("Log: New user created\n");
 
-        send(client_fd, &db_acc.name, sizeof(db_acc.name), 0);
+        send(client_fd, &username, sizeof(username), 0);
+        send(client_fd, &valid, sizeof(valid), 0);
     }
     else
     {
-        // esle move and get last record
-        file_pointer = lseek(fd, -1 * sizeof(struct account), SEEK_END);
-        read(fd, &db_acc, sizeof(db_acc));
+        // File is not empty, search for a matching username
+        valid = 1;
 
-        db_acc.id++;
-        strcpy(db_acc.name, username);
-        strcpy(db_acc.pass, password);
+        // Move the file pointer back to the beginning of the file
+        lseek(fd, 0, SEEK_SET);
 
-        write(fd, &db_acc, sizeof(db_acc));
+        // Read the data from the file until the end is reached
+        while (read(fd, &db_acc, sizeof(db_acc)) > 0)
+        {
+            if (strcmp(db_acc.name, username) == 0)
+            {
+                // if username is already taken
+                valid = 0;
+                printf("Log: Username is already taken\n");
+                break;
+            }
+        }
 
-        send(client_fd, &db_acc.name, sizeof(db_acc.name), 0);
+        if (valid)
+        {
+            // valid = 1, username is not taken
+            // Move the file pointer to the end of the file
+            file_pointer = lseek(fd, 0, SEEK_END);
+
+            // Get the last record in the file
+            lseek(fd, -1 * sizeof(struct account), SEEK_END);
+            read(fd, &db_acc, sizeof(db_acc));
+
+            // Create a new user record
+            db_acc.id++;
+            strcpy(db_acc.name, username);
+            strcpy(db_acc.pass, password);
+
+            // Write the new user record to the file
+            write(fd, &db_acc, sizeof(db_acc));
+            printf("Log: New user created\n");
+
+            send(client_fd, &username, sizeof(username), 0);
+            send(client_fd, &valid, sizeof(valid), 0);
+        }
+        else
+        {
+            // valid = 0, username is taken
+            send(client_fd, &username, sizeof(username), 0);
+            send(client_fd, &valid, sizeof(valid), 0);
+            printf("Log: %s user registration failed\n", username);
+        }
     }
-    
+
+    close(fd);
     v(sem_id);
     // exit critical section
-
-    printf("Log: %s user registered\n", username);
 
     /* Uncomment belowe code retrerive all records */
     // lseek(fd, 0, SEEK_SET);
@@ -607,20 +646,17 @@ int update_bus_info(int bus_id, int seat_id, int book_status, int client_id)
                 db_bus.seat[seat_id] = 1;
                 printf("Log: Seat booked\n");
                 status = 1;
-                // update result.seat and print the seat status
             }
             else if (db_bus.seat[seat_id] == 1 && book_status == 0)
             {
                 db_bus.seat[seat_id] = 0;
                 printf("Log: Seat unbooked\n");
                 status = 0;
-                // update result.seat and print the seat status
             }
             else if (db_bus.seat[seat_id] == 1 && book_status == 1)
             {
                 printf("Log: Seat booked by other client\n");
                 status = 0;
-                // update result.seat and print the seat status
             }
             else
             {
@@ -681,18 +717,19 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
             printf("Log: Booking info created\n");
         }
     }
-
+    time_t mytime;
+	mytime = time(NULL);
     // mark the seat as booked/unbooked for booking info
     if (found)
     {
         db_booking.seat[seat_id] = book_status;
-        strcpy(db_booking.date, "dd");
+        strcpy(db_booking.date, ctime(&mytime));
     }
     else
     {
         db_booking.client_id = client_id;
         db_booking.bus_id = bus_id;
-        strcpy(db_booking.date, "dd");
+        strcpy(db_booking.date, ctime(&mytime));
         for (int i = 0; i < MAX_SEAT; i++)
         {
             db_booking.seat[i] = 0;
