@@ -11,6 +11,7 @@
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include "sem.h"
+#include <time.h>
 
 #define PORT 5666
 #define buf_size 1024
@@ -37,8 +38,8 @@ struct bus_info
 {
     int id;
     char name[10];
-    char date[10];
-    char time[10];
+    char date[20];
+    char time[20];
     int seat[MAX_SEAT];
 };
 
@@ -143,11 +144,24 @@ void dissconnect_client(int client_fd)
     }
 }
 
+char *format_date(char *date_str)
+{
+    char *day = strtok(date_str, " ");
+    char *month = strtok(NULL, " ");
+    char *day_of_month = strtok(NULL, " ");
+
+    static char date[20];
+    sprintf(date, "%s %s %s", month, day_of_month, day);
+    return date;
+}
+
 int main(int argc, char *argv[])
 {
     int pipefd[2];
     char buf[buf_size];
     pid_t pid;
+
+    printf("[use ./server --reset for reseting the bus info]\n");
 
     // check if '--reset' argument is passed
     if (argc > 1 && strcmp(argv[1], "--reset") == 0)
@@ -162,7 +176,7 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        printf("Enter the number of buses [MAX 10]: ");
+        printf("Enter the number of buses: ");
         scanf("%d", &num_buses);
 
         // fill in the message queue struct
@@ -717,19 +731,28 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
             printf("Log: Booking info created\n");
         }
     }
-    time_t mytime;
-	mytime = time(NULL);
+    
     // mark the seat as booked/unbooked for booking info
     if (found)
     {
+        time_t mytime;
+        mytime = time(NULL);
+        char *date_str = ctime(&mytime);
+        char *formatted_date = format_date(date_str);
+
         db_booking.seat[seat_id] = book_status;
-        strcpy(db_booking.date, ctime(&mytime));
+        strcpy(db_booking.date, formatted_date);
     }
     else
     {
+        time_t mytime;
+        mytime = time(NULL);
+        char *date_str = ctime(&mytime);
+        char *formatted_date = format_date(date_str);
+
         db_booking.client_id = client_id;
         db_booking.bus_id = bus_id;
-        strcpy(db_booking.date, ctime(&mytime));
+        strcpy(db_booking.date, formatted_date);
         for (int i = 0; i < MAX_SEAT; i++)
         {
             db_booking.seat[i] = 0;

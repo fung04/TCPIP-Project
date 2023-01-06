@@ -18,8 +18,8 @@ struct bus_info
 {
     int id;
     char name[10];
-    char date[10];
-    char time[10];
+    char date[20];
+    char time[20];
     int seat[MAX_SEAT];
 };
 
@@ -48,10 +48,10 @@ int main(int argc, char **argv)
 {
     struct sockaddr_in server_addr;
     
-    // char *server_address = "127.0.0.1";  // default server address
-    // if (argc >= 2) {
-    //     server_address = argv[1];  // use server address passed as command line argument
-    // }
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <server_address>\n", argv[0]);
+        exit(1);
+    }
 
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (client_fd == -1)
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
 
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PORT);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    server_addr.sin_addr.s_addr = inet_addr(argv[1]);
 
     if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
     {
@@ -156,7 +156,7 @@ int booking_system(int client_fd)
         {
             system("clear");
             printf("Hi %s, you had successfully registered\n", name);
-            booking_menu(client_fd);
+            booking_system(client_fd);
         }
         else
         {   

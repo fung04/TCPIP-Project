@@ -14,8 +14,8 @@ struct bus_info
 {
     int id;
     char name[10];
-    char date[10];
-    char time[10];
+    char date[20];
+    char time[20];
     int seat[MAX_SEAT];
 };
 
@@ -52,9 +52,18 @@ int main()
     for (int i = 0; i < num_buses; i++)
     {
         buses[i].id = i + 1;
-        sprintf(buses[i].name, "Bus %d", i + 1);
-        sprintf(buses[i].date, "01/01/2022");
-        sprintf(buses[i].time, "12:00");
+
+        // Ask the user to input the name of the bus
+        printf("Enter the name of bus %d: ", i + 1);
+        scanf("%s", buses[i].name);
+
+        // Ask the user to input the date of the bus
+        printf("Enter the date of bus %d (format: dd/mm/yyyy): ", i + 1);
+        scanf("%s", buses[i].date);
+
+        // Ask the user to input the time of the bus
+        printf("Enter the time of bus %d (format: hhmm-hhmm): ", i + 1);
+        scanf("%s", buses[i].time);
 
         // Fill in the seat array with default values
         for (int j = 0; j < MAX_SEAT; j++)
@@ -62,11 +71,23 @@ int main()
             buses[i].seat[j] = 0;
         }
 
-        buses[i].seat[9] = 1;
+        //buses[i].seat[9] = 1;
     }
 
+    // ucomment code below to view the bus information
+    // printf(" ID  |  Name  |  Date  |  Time  |  Seat\n");
+    // for (int i = 0; i < num_buses; i++)
+    // {
+    //     printf(" %d  |  %s  |  %s  |  %s  |  ", buses[i].id, buses[i].name, buses[i].date, buses[i].time);
+    //     for (int j = 0; j < MAX_SEAT; j++)
+    //     {
+    //         printf("%d", buses[i].seat[j]);
+    //     }
+    //     printf("\n");
+    // }
+
     // save the data to a file
-        // Open the file for writing
+    // Open the file for writing
     int fd = open("bus_info", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0)
     {
