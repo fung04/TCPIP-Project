@@ -741,6 +741,7 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
         char *formatted_date = format_date(date_str);
 
         db_booking.seat[seat_id] = book_status;
+        printf("unbooked");
         strcpy(db_booking.date, formatted_date);
     }
     else
@@ -757,6 +758,7 @@ void update_booking_info(int client_id, int bus_id, int seat_id, int book_status
         {
             db_booking.seat[i] = 0;
         }
+        printf("unbooked");
         db_booking.seat[seat_id] = book_status;
     }
     // save the booking info
@@ -885,6 +887,7 @@ void view_ticket(int client_fd, int client_id)
     recv(client_fd, &order_id, sizeof(order_id), 0);
     recv(client_fd, &seat_id, sizeof(seat_id), 0);
 
+    p(sem_id);
     switch (user_option)
     {
     case 1:
@@ -893,7 +896,7 @@ void view_ticket(int client_fd, int client_id)
         {
             if (booking_list[i].id == order_id)
             {
-                printf("Log: Booking record found\n");
+                printf("Log: Booking cancle record found\n");
                 book_status = update_bus_info(booking_list[i].bus_id, seat_id, 0, client_id);
                 if(book_status = 0)
                     update_booking_info(client_id, booking_list[i].bus_id, seat_id, book_status);
@@ -938,5 +941,6 @@ void view_ticket(int client_fd, int client_id)
         break;
     }
     close(booking_fd);
+    v(sem_id);
     booking_menu_handler(client_fd, client_id);
 }
