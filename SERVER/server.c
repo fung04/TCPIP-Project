@@ -900,7 +900,7 @@ void view_ticket(int client_fd, int client_id)
             {
                 printf("Log: Booking cancle record found\n");
                 book_status = update_bus_info(booking_list[i].bus_id, seat_id, 0, client_id);
-                if(book_status = 0)
+                if(book_status == 0)
                     update_booking_info(client_id, booking_list[i].bus_id, seat_id, book_status);
             }
         }
